@@ -1,0 +1,12 @@
+- hosts: master
+  tasks:
+    - shell: |
+        iptables -F
+        iptables -t nat -F
+        iptables -t nat -A POSTROUTING -j MASQUERADE
+        echo 1 > /proc/sys/net/ipv4/ip_forward
+      become: yes
+- hosts: workers
+  tasks:
+    - shell: route add default gw 192.168.1.1
+      become: yes

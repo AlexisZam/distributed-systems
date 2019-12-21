@@ -1,0 +1,76 @@
+- debug:
+    msg: |
+      Capacity: {{ item[0] }}
+      Difficulty: {{ item[1] }}
+      Number of nodes: {{ item[2] }}
+
+- name: Run app (bootstrap)
+  command: /home/user/distributed/src/server/app.py -b {{ bootstrap_address }} -c {{ item[0] }} -d {{ item[1] }} -h {{ host }} -n {{ item[2] }}
+  register: bootstrap_app_result
+  async: 3600
+  poll: 0
+  when: host == bootstrap_host
+
+- name: Wait for app to run (bootstrap)
+  wait_for:
+    host: "{{ bootstrap_host }}"
+    port: "{{ bootstrap_port }}"
+
+- pause:
+    seconds: 10
+
+- name: Run app
+  command: /home/user/distributed/src/server/app.py -b {{ bootstrap_address }} -c {{ item[0] }} -d {{ item[1] }} -n {{ item[2] }} -h {{ host }} -p 5001
+  register: app2_result
+  async: 3600
+  poll: 0
+  when: item[2] == 10
+- name: Run app
+  command: /home/user/distributed/src/server/app.py -b {{ bootstrap_address }} -c {{ item[0] }} -d {{ item[1] }} -n {{ item[2] }} -h {{ host }}
+  register: app_result
+  async: 3600
+  poll: 0
+  when: host != bootstrap_host
+
+- name: Wait for app to run
+  wait_for:
+    host: "{{ host }}"
+    port: 5000
+- name: Wait for app to run
+  wait_for:
+    host: "{{ host }}"
+    port: 5001
+  when: item[2] == 10
+
+- pause:
+    seconds: 10
+
+- name: Run test
+  shell: /home/user/distributed/src/test.py -n {{ item[2] }} -h {{ host }} -p 5001 > /home/user/outputs/c_{{ item[0] }}_d_{{ item[1] }}_n_{{ item[2] }}_h_{{ host }}_p_5001.out
+  async: 3600
+  poll: 0
+  when: item[2] == 10
+- name: Run test
+  shell: /home/user/distributed/src/test.py -n {{ item[2] }} -h {{ host }} > /home/user/outputs/c_{{ item[0] }}_d_{{ item[1] }}_n_{{ item[2] }}_h_{{ host }}_p_5000.out
+
+- name: Wait for app to exit (bootstrap)
+  async_status:
+    jid: "{{ bootstrap_app_result.ansible_job_id }}"
+  register: job_result
+  until: job_result.finished
+  retries: 30
+  when: host == bootstrap_host
+- name: Wait for app to exit
+  async_status:
+    jid: "{{ app_result.ansible_job_id }}"
+  register: job_result
+  until: job_result.finished
+  retries: 30
+  when: host != bootstrap_host
+- name: Wait for app to exit
+  async_status:
+    jid: "{{ app2_result.ansible_job_id }}"
+  register: job_result
+  until: job_result.finished
+  retries: 30
+  when: item[2] == 10

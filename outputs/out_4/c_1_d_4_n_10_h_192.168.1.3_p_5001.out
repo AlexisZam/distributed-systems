@@ -1,0 +1,5 @@
+Average block time: 0.07698276307847765
+Average throughput: 21.591954688059776
+Statistics: {'blockchains_validated': 33, 'blocks_created': 18, 'blocks_validated': 91, 'conflicts_resolved': 32, 'transactions_created': 49, 'transactions_validated': 437}
+Balances: [24, 110, 116, 65, 109, 140, 179, 24, 124, 109]
+Committed balances: [24, 110, 116, 65, 109, 140, 179, 24, 124, 109]

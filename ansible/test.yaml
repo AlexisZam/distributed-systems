@@ -1,0 +1,21 @@
+- hosts: all
+  vars:
+    bootstrap_host: 192.168.1.1
+    bootstrap_port: 5000
+    bootstrap_address: "{{ bootstrap_host }}:{{ bootstrap_port }}"
+    host: "{{ ansible_eth1.ipv4.address }}"
+  tasks:
+    - git:
+        repo: https://github.com/AlexisZam/distributed.git
+        dest: /home/user/distributed
+    - include_tasks: tasks.yaml
+      loop: "{{ [1, 5, 10] | product([4, 5], [5, 10]) | list }}"
+- hosts: workers
+  tasks:
+    - name: Fetch files from workers
+      synchronize:
+        mode: pull
+        src: /home/user/outputs
+        dest: /home/user
+    - name: Remove files from workers
+      shell: rm -f /home/user/outputs/*

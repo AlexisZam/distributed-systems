@@ -1,0 +1,17 @@
+'Average block time'
+0.17332849502563477
+'Average throughput'
+53.32407571620536
+'Statistics'
+defaultdict(<class 'int'>,
+            {'blockchains_created': 1,
+             'blockchains_validated': 2,
+             'blocks_created': 15,
+             'blocks_validated': 10,
+             'conflicts_resolved': 2,
+             'transactions_created': 49,
+             'transactions_validated': 436})
+'Balances'
+[0, 121, 96, 125, 158]
+'Committed balances'
+[94, 105, 72, 112, 117]
