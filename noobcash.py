@@ -6,62 +6,59 @@ from collections import defaultdict
 from Crypto.Hash import SHA512
 from Crypto.PublicKey import RSA
 from Crypto.Signature import PKCS1_v1_5
-from flask import Flask, request
 from json import load
-from logging import basicConfig, DEBUG, debug
-from multiprocessing import Process
+from logging import basicConfig, DEBUG, debug, error
 from multiprocessing.connection import Client, Listener
-from pickle import loads, dumps
+from pickle import dumps
+from pprint import pformat
 from random import random
-from requests import post
+import readline
+from threading import Thread
 from time import sleep, time
 
-basicConfig(format=None, level=DEBUG)
-
-
-class Address:
-    def __init__(self, host, port):
-        self.host = host
-        self.port = port
-
-    def __repr__(self):
-        return f"{self.host}:{self.port}"
+basicConfig(format=None, level=None)
 
 
 class TransactionOutput:
-    counter = 0
-
     def __init__(
         self, transaction_id, transaction_receiver_public_key, transaction_amount
     ):
-        self.id = TransactionOutput.counter
-        TransactionOutput.counter += 1
         self.transaction_id = transaction_id
         self.transaction_receiver_public_key = transaction_receiver_public_key
+        # TODO: check if sent to me
         self.transaction_amount = transaction_amount
+        self.id = self.hash().hexdigest()
         debug(self)
 
     def __repr__(self):
-        return f"'TransactionOutput': {self.__dict__}"
+        return f"'TransactionOutput'\n{pformat(self.__dict__)}\n"
+
+    def hash(self):
+        data = (
+            self.transaction_id,
+            self.transaction_receiver_public_key,
+            self.transaction_amount,
+        )
+        return SHA512.new(data=dumps(data))
 
 
 class Transaction:
     def __init__(
-        self, sender_private_key, sender_wallet_address, receiver_wallet_address, amount
+        self, sender_private_key, sender_public_key, receiver_public_key, amount
     ):
-        self.sender_wallet_address = sender_wallet_address
-        self.receiver_wallet_address = receiver_wallet_address
+        self.sender_public_key = sender_public_key
+        self.receiver_public_key = receiver_public_key
         self.amount = amount
 
         h = self.hash()
         self.id = h.hexdigest()
-        if self.sender_wallet_address != 0:  # FIXME
+        if self.sender_public_key != 0:  # FIXME
             self.signature = PKCS1_v1_5.new(sender_private_key).sign(h)
 
             uto_amount = 0
             self.transaction_input = []
             if self.amount != 0:
-                for uto in utos[self.sender_wallet_address].values():
+                for uto in utos[self.sender_public_key].values():
                     uto_amount += uto.transaction_amount
                     self.transaction_input.append(uto.id)
                     if uto_amount >= self.amount:
@@ -70,25 +67,29 @@ class Transaction:
         debug(self)
 
         if broadcast:
-            for address in nodes:
-                post(f"http://{address[0]}:{address[1]}/transaction", data=dumps(self))
+            for server_address in nodes:
+                if server_address != address:
+                    with Client(server_address) as connection:
+                        connection.send(("transaction", self))
 
     def __repr__(self):
-        return f"'Transaction': {self.__dict__}"
+        return f"'Transaction'\n{pformat(self.__dict__)}\n"
 
     def hash(self):
-        data = (self.sender_wallet_address, self.receiver_wallet_address, self.amount)
+        data = (self.sender_public_key, self.receiver_public_key, self.amount)
         return SHA512.new(data=dumps(data))
 
+    # NOTE: creator must also validate transaction
     def validate(self):
-        if self.sender_wallet_address:  # FIXME
-            if not PKCS1_v1_5.new(RSA.importKey(self.sender_wallet_address)).verify(
+        if self.sender_public_key:  # FIXME
+            if not PKCS1_v1_5.new(RSA.importKey(self.sender_public_key)).verify(
                 self.hash(), self.signature
             ):
                 return False
+
             try:
                 uto_amount = sum(
-                    utos[self.sender_wallet_address].pop(uto_id).transaction_amount
+                    utos[self.sender_public_key].pop(uto_id).transaction_amount
                     for uto_id in self.transaction_input
                 )
             except KeyError:
@@ -98,14 +99,15 @@ class Transaction:
                 return False
 
             sender_to = TransactionOutput(
-                self.id, self.receiver_wallet_address, uto_amount - self.amount
+                self.id, self.receiver_public_key, uto_amount - self.amount
             )
-            utos[self.sender_wallet_address][sender_to.id] = sender_to
-        receiver_to = TransactionOutput(
-            self.id, self.receiver_wallet_address, self.amount
-        )
-        utos[self.receiver_wallet_address][receiver_to.id] = receiver_to
+            utos[self.sender_public_key][sender_to.id] = sender_to
+        receiver_to = TransactionOutput(self.id, self.receiver_public_key, self.amount)
+        utos[self.receiver_public_key][receiver_to.id] = receiver_to
         return True
+
+
+mined = validated = False
 
 
 class Block:
@@ -120,7 +122,7 @@ class Block:
         debug(self)
 
     def __repr__(self):
-        return f"'Block': {self.index}"
+        return f"'Block'\n{pformat((self.__dict__))}\n"
 
     def hash(self):
         data = (
@@ -147,18 +149,24 @@ class Block:
                 self.current_hash = self.hash().hexdigest()
                 if int(self.current_hash[:difficulty], base=16) == 0:
                     break
+                if validated:
+                    return False
         debug(self)
+        mined = True
 
         if broadcast:
-            for address in nodes:
-                post(f"http://{address}/block", data=self)
+            for server_address in nodes:
+                if server_address != address:
+                    with Client(server_address) as connection:
+                        connection.send(("block", self))
 
     def validate(self):
-        return (
+        validated = (
             self.index == 0
             or self.previous_hash == blockchain.top().current_hash
             and self.current_hash == self.hash().hexdigest()
         )
+        return validated
 
 
 class Blockchain:
@@ -167,13 +175,12 @@ class Blockchain:
         debug(self)
 
     def __repr__(self):
-        return f"'Blockchain': {self.__dict__}"
+        return f"'Blockchain'\n{pformat(self.__dict__)}\n"
 
     def add(self, block):
         block.mine()
-        if block.validate():
-            self.blocks.append(block)
-            debug(self)
+        self.blocks.append(block)
+        debug(self)
 
     def top(self):
         return self.blocks[-1]
@@ -187,7 +194,7 @@ Load configuration
 """
 with open("config.json") as fp:
     d = load(fp)
-    bootstrap_address = Address(d["bootstrap_host"], d["bootstrap_port"])
+    bootstrap_address = (d["bootstrap_host"], d["bootstrap_port"])
     capacity = d["capacity"]
     difficulty = d["difficulty"]
     n_nodes = d["n_nodes"]
@@ -195,11 +202,13 @@ with open("config.json") as fp:
 """
 Parse arguments
 """
-parser = ArgumentParser()
-parser.add_argument("--host", default="127.0.0.1", type=str)  # TODO: -h
+parser = ArgumentParser(add_help=False)
+parser.add_argument("-h", "--host", default="127.0.0.1", type=str)
 parser.add_argument("-p", "--port", default=5000, type=int)
 args = parser.parse_args()
-address = Address(args.host, args.port)
+host = args.host
+port = args.port
+address = (host, port)
 
 broadcast = False
 
@@ -207,8 +216,7 @@ broadcast = False
 Initialize nodes
 """
 private_key = RSA.generate(2048)
-public_key = private_key.publickey()
-wallet_address = public_key.exportKey()
+public_key = private_key.publickey().exportKey()
 
 if address == bootstrap_address:
     blockchain = Blockchain()
@@ -218,7 +226,7 @@ if address == bootstrap_address:
     nodes = {bootstrap_address: public_key}
 
     block = Block()
-    transaction = Transaction(0, 0, wallet_address, 100 * n_nodes)
+    transaction = Transaction(0, 0, public_key, 100 * n_nodes)
     block.add(transaction)
     blockchain.add(block)
     block = Block()
@@ -231,7 +239,7 @@ if address == bootstrap_address:
                 connection.send(i)
 
                 transaction = Transaction(
-                    private_key, wallet_address, client_public_key.exportKey(), 100
+                    private_key, public_key, client_public_key, 100
                 )
                 block.add(transaction)
                 if (i - 1) % capacity == 0:
@@ -240,9 +248,9 @@ if address == bootstrap_address:
 
     sleep(1)  # FIXME
 
-    for client_address in nodes:
-        if client_address != address:
-            with Client(client_address) as connection:
+    for server_address in nodes:
+        if server_address != address:
+            with Client(server_address) as connection:
                 connection.send((nodes, blockchain, utos))
 else:
     with Client(bootstrap_address) as connection:
@@ -252,78 +260,72 @@ else:
     with Listener(address) as listener:
         with listener.accept() as connection:
             nodes, blockchain, utos = connection.recv()
-            blockchain.validate()  # FIXME
+            # blockchain.validate()  # FIXME
 
+    Block()  # FIXME
     block = Block()
 
-"""
-Flask
-"""
+
+def server():
+    while True:
+        with Listener(address) as listener:
+            with listener.accept() as connection:
+                k, v = connection.recv()
+                if k == "transaction":
+                    global block, mined, validated  # FIXME
+                    block.add(v)
+                    if len(block.transactions) == capacity:
+                        blockchain.add(block)
+                        block = Block()
+                        mined = validated = False
+                elif k == "block":
+                    if v.validate():
+                        blockchain.add(v)
+                    else:
+                        error("block validation failed")
 
 
-def flask():
-    app.run(host=address.host, port=address.port)
-
-
-app = Flask(__name__)
-
-
-@app.route("/transaction", methods=["POST"])
-def post_transaction():
-    transaction = loads(request.get_data())
-    block.add(transaction)
-    # FIXME: capacity check
-    print(transaction)
-    return "peos"
-
-
-@app.route("/block", methods=["POST"])
-def post_block():
-    block = loads(request.get_data())
-    blockchain.add(block)
-    print(block)
-    pass
-
-
-p = Process(target=flask)
-p.start()
+thread = Thread(target=server)
+thread.start()
 
 broadcast = True
-
-
-"""
-REPL
-"""
 
 
 class REPL(Cmd):
     intro = 'Noobcash 1.0\nType "help" for more information.'
     prompt = ">>> "
 
-    def do_t(self, arg):
-        receiver_host, receiver_port, amount = ("127.0.0.1", 5000, 10)
-        # FIXME: arg.split()
-        # TODO: arg-parse error handling
-        receiver_address = (receiver_host, int(receiver_port))
+    def do_transaction(self, arg):
+        try:
+            receiver_adress, amount = arg.split()
+            receiver_host, receiver_port = receiver_adress.split(":")
+            receiver_address = (receiver_host, int(receiver_port))
+        except ValueError:
+            print("usage: transaction receiver_adress amount")
+            return
+
         transaction = Transaction(
-            private_key,
-            wallet_address,
-            nodes[receiver_address].exportKey(),
-            int(amount),
+            private_key, public_key, nodes[receiver_address], int(amount),
         )
+        global block  # FIXME
         block.add(transaction)
+        if len(block.transactions) == capacity:
+            blockchain.add(block)
+            block = Block()
 
     def do_view(self, _):
         for transaction in blockchain.top().transactions:
             print(transaction)
 
     def do_balance(self, _):
-        print(sum(uto.transaction_amount for uto in utos[wallet_address].values()))
+        print(sum(uto.transaction_amount for uto in utos[public_key].values()))
 
     def do_help(self, _):
-        print("t <receiver_address> <amount>\nview\nbalance\nhelp")  # TODO
+        print(
+            "transaction receiver_address amount", "view", "balance", "help", sep="\n"
+        )  # TODO
 
 
 REPL().cmdloop()
 
-p.join()
+thread.join()
