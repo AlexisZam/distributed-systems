@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python3.8
 
 from argparse import ArgumentParser
 from cmd import Cmd
@@ -16,7 +16,7 @@ import readline
 from threading import Thread
 from time import sleep, time
 
-basicConfig(format=None, level=None)
+basicConfig(format=None, level=DEBUG)
 
 
 class TransactionOutput:
@@ -25,10 +25,9 @@ class TransactionOutput:
     ):
         self.transaction_id = transaction_id
         self.transaction_receiver_public_key = transaction_receiver_public_key
-        # TODO: check if sent to me
+        # TODO check if sent to me
         self.transaction_amount = transaction_amount
         self.id = self.hash().hexdigest()
-        debug(self)
 
     def __repr__(self):
         return f"'TransactionOutput'\n{pformat(self.__dict__)}\n"
@@ -63,8 +62,7 @@ class Transaction:
                     self.transaction_input.append(uto.id)
                     if uto_amount >= self.amount:
                         break
-            # TODO: insufficient amount
-        debug(self)
+            # TODO insufficient amount
 
         if broadcast:
             for server_address in nodes:
@@ -93,7 +91,7 @@ class Transaction:
                     for uto_id in self.transaction_input
                 )
             except KeyError:
-                return False
+                return False  # FIXME
 
             if uto_amount < self.amount:
                 return False
@@ -102,12 +100,17 @@ class Transaction:
                 self.id, self.receiver_public_key, uto_amount - self.amount
             )
             utos[self.sender_public_key][sender_to.id] = sender_to
+        else:
+            debug("genesis block")
         receiver_to = TransactionOutput(self.id, self.receiver_public_key, self.amount)
         utos[self.receiver_public_key][receiver_to.id] = receiver_to
+        print(
+            [sum(uto.transaction_amount for uto in v.values()) for v in utos.values()]
+        )
         return True
 
 
-mined = validated = False
+validated = False
 
 
 class Block:
@@ -119,7 +122,6 @@ class Block:
         self.timestamp = time()
         self.transactions = []
         self.previous_hash = 0 if self.index == 0 else blockchain.top().current_hash
-        debug(self)
 
     def __repr__(self):
         return f"'Block'\n{pformat((self.__dict__))}\n"
@@ -135,9 +137,12 @@ class Block:
         return SHA512.new(data=dumps(data))
 
     def add(self, transaction):
+        debug("transaction validation started")
         if transaction.validate():
+            debug("transaction validation successfull")
             self.transactions.append(transaction)
-            debug(self)
+        else:
+            debug("transaction validation failed")
 
     def mine(self):
         if self.index == 0:
@@ -151,16 +156,19 @@ class Block:
                     break
                 if validated:
                     return False
-        debug(self)
-        mined = True
+
+        sleep(random())  # FIXME
 
         if broadcast:
             for server_address in nodes:
                 if server_address != address:
                     with Client(server_address) as connection:
                         connection.send(("block", self))
+        return True
 
     def validate(self):
+        global validated
+        validated = False
         validated = (
             self.index == 0
             or self.previous_hash == blockchain.top().current_hash
@@ -172,15 +180,12 @@ class Block:
 class Blockchain:
     def __init__(self):
         self.blocks = []
-        debug(self)
 
     def __repr__(self):
         return f"'Blockchain'\n{pformat(self.__dict__)}\n"
 
     def add(self, block):
-        block.mine()
         self.blocks.append(block)
-        debug(self)
 
     def top(self):
         return self.blocks[-1]
@@ -228,6 +233,7 @@ if address == bootstrap_address:
     block = Block()
     transaction = Transaction(0, 0, public_key, 100 * n_nodes)
     block.add(transaction)
+    block.mine()
     blockchain.add(block)
     block = Block()
 
@@ -243,10 +249,9 @@ if address == bootstrap_address:
                 )
                 block.add(transaction)
                 if (i - 1) % capacity == 0:
+                    block.mine()
                     blockchain.add(block)
                     block = Block()
-
-    sleep(1)  # FIXME
 
     for server_address in nodes:
         if server_address != address:
@@ -271,18 +276,29 @@ def server():
         with Listener(address) as listener:
             with listener.accept() as connection:
                 k, v = connection.recv()
-                if k == "transaction":
-                    global block, mined, validated  # FIXME
-                    block.add(v)
-                    if len(block.transactions) == capacity:
-                        blockchain.add(block)
-                        block = Block()
-                        mined = validated = False
-                elif k == "block":
-                    if v.validate():
-                        blockchain.add(v)
-                    else:
-                        error("block validation failed")
+                Thread(target=target, args=[k, v]).start()
+
+
+def target(k, v):
+    if k == "transaction":
+        global block, validated  # FIXME
+        block.add(v)
+        if len(block.transactions) == capacity:
+            debug("block mining started (received)")
+            if block.mine():
+                debug("block mining successfull (received)")
+                blockchain.add(block)
+                block = Block()
+                validated = False
+            else:
+                debug("block mining failed (received)")
+    elif k == "block":
+        debug("block validation started (received)")
+        if v.validate():
+            debug("block validation successfull (received)")
+            blockchain.add(v)
+        else:
+            debug("block validation failed (received)")
 
 
 thread = Thread(target=server)
@@ -296,22 +312,31 @@ class REPL(Cmd):
     prompt = ">>> "
 
     def do_transaction(self, arg):
-        try:
-            receiver_adress, amount = arg.split()
-            receiver_host, receiver_port = receiver_adress.split(":")
-            receiver_address = (receiver_host, int(receiver_port))
-        except ValueError:
-            print("usage: transaction receiver_adress amount")
-            return
+        if not arg:
+            receiver_address, amount = ("127.0.0.1", 5000), 1
+        else:
+            try:
+                receiver_adress, amount = arg.split()
+                receiver_host, receiver_port = receiver_adress.split(":")
+                receiver_address = (receiver_host, int(receiver_port))
+            except ValueError:
+                print("usage: transaction receiver_adress amount")
+                return
 
         transaction = Transaction(
             private_key, public_key, nodes[receiver_address], int(amount),
         )
-        global block  # FIXME
+        global block, validated  # FIXME
         block.add(transaction)
         if len(block.transactions) == capacity:
-            blockchain.add(block)
-            block = Block()
+            debug("block mining started (sent)")
+            if block.mine():
+                debug("block mining successfull (sent)")
+                blockchain.add(block)
+                block = Block()
+                validated = False
+            else:
+                debug("block mining failed (sent)")
 
     def do_view(self, _):
         for transaction in blockchain.top().transactions:
