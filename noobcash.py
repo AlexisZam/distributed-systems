@@ -49,11 +49,7 @@ class Transaction:
         self.receiver_public_key = receiver_public_key
         self.amount = amount
 
-        h = self.hash()
-        self.id = h.hexdigest()
         if self.sender_public_key != 0:  # FIXME
-            self.signature = PKCS1_v1_5.new(sender_private_key).sign(h)
-
             uto_amount = 0
             self.transaction_input = []
             if self.amount != 0:
@@ -63,6 +59,11 @@ class Transaction:
                     if uto_amount >= self.amount:
                         break
             # TODO insufficient amount
+
+        h = self.hash()
+        self.id = h.hexdigest()
+        if self.sender_public_key != 0:  # FIXME
+            self.signature = PKCS1_v1_5.new(sender_private_key).sign(h)
 
         if broadcast:
             for server_address in nodes:
@@ -75,6 +76,8 @@ class Transaction:
 
     def hash(self):
         data = (self.sender_public_key, self.receiver_public_key, self.amount)
+        if self.sender_public_key != 0:  # FIXME
+            data = (*data, self.transaction_input)
         return SHA512.new(data=dumps(data))
 
     # NOTE: creator must also validate transaction
@@ -85,28 +88,40 @@ class Transaction:
             ):
                 return False
 
+            uto_amount = 0
+            class Found(Exception): pass
+            try:
+                for block in reversed(blockchain.blocks):
+                    for transaction in reversed(block.transactions):
+                        if transaction.receiver_public_key == public_key:
+                            uto_amount += transaction.amount
+                        elif transaction.sender_public_key == public_key:
+                            uto_amount -= transaction.amount
+                        if uto_amount >= amount:
+                            raise Found
+            except Found:
+                pass
             try:
                 uto_amount = sum(
                     utos[self.sender_public_key].pop(uto_id).transaction_amount
                     for uto_id in self.transaction_input
                 )
-            except KeyError:
-                return False  # FIXME
+            except:
+                return False
 
             if uto_amount < self.amount:
                 return False
 
-            sender_to = TransactionOutput(
-                self.id, self.receiver_public_key, uto_amount - self.amount
-            )
-            utos[self.sender_public_key][sender_to.id] = sender_to
-        else:
-            debug("genesis block")
-        receiver_to = TransactionOutput(self.id, self.receiver_public_key, self.amount)
-        utos[self.receiver_public_key][receiver_to.id] = receiver_to
-        print(
-            [sum(uto.transaction_amount for uto in v.values()) for v in utos.values()]
-        )
+        #     sender_to = TransactionOutput(
+        #         self.id, self.receiver_public_key, uto_amount - self.amount
+        #     )
+        #     utos[self.sender_public_key][sender_to.id] = sender_to
+        # receiver_to = TransactionOutput(self.id, self.receiver_public_key, self.amount)
+        # utos[self.receiver_public_key][receiver_to.id] = receiver_to
+        # print(
+        #     [sum(uto.transaction_amount for uto in v.values()) for v in utos.values()]
+        # )
+
         return True
 
 
@@ -174,7 +189,12 @@ class Block:
             or self.previous_hash == blockchain.top().current_hash
             and self.current_hash == self.hash().hexdigest()
         )
+        for transaction in self.transactions:
+            transaction.validate()
         return validated
+    
+    def validate_transactions(self):
+
 
 
 class Blockchain:
