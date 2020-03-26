@@ -21,10 +21,10 @@ class Transaction:
         self.transaction_input = []
         with state.utxos_lock:
             while utxo_amount < amount:
-                tx_id, amount = state.utxos[
+                tx_id, tx_amount = state.utxos[
                     self.sender_public_key
                 ].popitem()  # TODO KeyError
-                utxo_amount += amount
+                utxo_amount += tx_amount
                 self.transaction_input.append(tx_id)
 
         h = self.hash()

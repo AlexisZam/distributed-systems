@@ -6,6 +6,7 @@ from config import bootstrap_address
 import node
 
 nodes = {}
+nodes_lock = Lock()
 
 block = None
 block_lock = Lock()

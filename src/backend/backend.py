@@ -3,16 +3,15 @@
 from copy import deepcopy
 from flask import Flask, jsonify, request
 from http import HTTPStatus
-from requests import post, put
 from pickle import dumps, loads
+from requests import post, put
+from threading import Thread
 
 from block import Block, GenesisBlock
 from config import bootstrap_address
 import node
 import state
 from transaction import Transaction
-
-# TODO https://stackoverflow.com/questions/48391469/how-to-find-utxo-of-inputs-given-a-bitcoin-transaction/48958148
 
 
 def handle_transaction(transaction):
@@ -52,8 +51,6 @@ def balance():
 def create_transaction():
     data = loads(request.get_data())
     transaction = Transaction(state.nodes[data["receiver_address"]], data["amount"])
-    print(data)
-    print(transaction.transaction_outputs)
     for address in state.nodes:
         if address != node.address:
             post(f"http://{address}/transaction", data=dumps(transaction))
@@ -89,11 +86,13 @@ def block():
 def nodes():
     if request.method == "POST":
         nodes = loads(request.get_data())
-        state.nodes = nodes
+        with state.nodes_lock:
+            state.nodes = nodes
         return "", HTTPStatus.NO_CONTENT
     else:
         address, public_key = loads(request.get_data())
-        state.nodes[address] = public_key
+        with state.nodes_lock:
+            state.nodes[address] = public_key
 
         if node.address == bootstrap_address:
             post(f"http://{address}/nodes", data=dumps(state.nodes))
@@ -133,7 +132,5 @@ def init():
 
 
 if __name__ == "__main__":
-    from threading import Thread
-
     Thread(target=init).start()
     app.run(host=node.host, port=node.port, debug=True)
