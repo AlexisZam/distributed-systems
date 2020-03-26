@@ -11,9 +11,11 @@ import state
 
 class Transaction:
     def __init__(self, receiver_public_key, amount):
+        if node.public_key == receiver_public_key:
+            raise ValueError
+
         self.sender_public_key = node.public_key
         self.receiver_public_key = receiver_public_key
-        # TODO do not allow transactions to self
 
         utxo_amount = 0
         self.transaction_input = []
@@ -35,9 +37,6 @@ class Transaction:
             state.utxos[self.sender_public_key][self.id] = utxo_amount - amount
             state.utxos[self.receiver_public_key][self.id] = amount
 
-    def __repr__(self):
-        return pformat(self.__dict__)
-
     def hash(self):
         data = (
             self.sender_public_key,
@@ -47,6 +46,9 @@ class Transaction:
         return SHA512.new(data=dumps(data))
 
     def validate(self, utxos):
+        if self.sender_public_key == self.receiver_public_key:
+            raise ValueError
+
         if not PKCS1_v1_5.new(RSA.importKey(self.sender_public_key)).verify(
             self.hash(), self.signature
         ):
@@ -93,3 +95,5 @@ class GenesisTransaction(Transaction):
             utxos[self.receiver_public_key][self.id] = self.transaction_outputs[
                 "receiver"
             ]
+
+        return True

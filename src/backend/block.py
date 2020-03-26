@@ -37,14 +37,14 @@ class Block:
                 return True
 
     def validate(self, utxos):
-        if not self.previous_hash == state.blockchain.top().current_hash:
-            # TODO resolve conflict
-            return False
-
         if not (
             int(self.hash().hexdigest()[:difficulty], base=16) == 0
             and all(transaction.validate(utxos) for transaction in self.transactions)
         ):
+            return False
+
+        if not self.previous_hash == state.blockchain.top().current_hash:
+            # TODO resolve conflict
             return False
 
         block_validated.set()
