@@ -8,5 +8,15 @@ class Blockchain:
     def top(self):
         return self.blocks[-1]
 
+    def length(self):
+        return len(self.blocks)
+
+    def at(self, i):
+        return self.blocks[i]
+
     def validate(self, utxos):
-        return all(block.validate(utxos) for block in self.blocks)
+        return all(block.validate(utxos, self) for block in self.blocks)
+
+    def update_utxos(self, utxos):
+        for block in self.blocks:
+            block.update_utxos(utxos)

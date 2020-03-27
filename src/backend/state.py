@@ -1,17 +1,13 @@
 from collections import defaultdict
 from threading import Lock
 
-from blockchain import Blockchain
-from config import bootstrap_address
-import node
-
-nodes = {}
+nodes = None
 nodes_lock = Lock()
 
 block = None
 block_lock = Lock()
 
-blockchain = Blockchain()
+blockchain = None
 blockchain_lock = Lock()
 
 committed_utxos = defaultdict(dict)

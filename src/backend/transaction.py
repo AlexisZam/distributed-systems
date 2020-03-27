@@ -2,40 +2,36 @@ from Crypto.Hash import SHA512
 from Crypto.PublicKey import RSA
 from Crypto.Signature import PKCS1_v1_5
 from pickle import dumps
-from pprint import pformat
 
 from config import n_nodes
-import node
-import state
 
 
 class Transaction:
-    def __init__(self, receiver_public_key, amount):
-        if node.public_key == receiver_public_key:
+    def __init__(
+        self, sender_public_key, sender_private_key, receiver_public_key, amount, utxos
+    ):
+        if sender_public_key == receiver_public_key or amount == 0:
             raise ValueError
 
-        self.sender_public_key = node.public_key
+        self.sender_public_key = sender_public_key
         self.receiver_public_key = receiver_public_key
 
         utxo_amount = 0
         self.transaction_input = []
-        with state.utxos_lock:
-            while utxo_amount < amount:
-                tx_id, tx_amount = state.utxos[
-                    self.sender_public_key
-                ].popitem()  # TODO KeyError
-                utxo_amount += tx_amount
-                self.transaction_input.append(tx_id)
+        for tx_id, tx_amount in utxos[self.sender_public_key].items():
+            if utxo_amount >= amount:
+                break
+            utxo_amount += tx_amount
+            self.transaction_input.append(tx_id)
+        if utxo_amount < amount:
+            raise ValueError
 
         h = self.hash()
         self.id = h.hexdigest()
-        self.signature = PKCS1_v1_5.new(node.private_key).sign(h)
+        self.signature = PKCS1_v1_5.new(sender_private_key).sign(h)
 
+        # TODO disallow zero change
         self.transaction_outputs = {"sender": utxo_amount - amount, "receiver": amount}
-
-        with state.utxos_lock:
-            state.utxos[self.sender_public_key][self.id] = utxo_amount - amount
-            state.utxos[self.receiver_public_key][self.id] = amount
 
     def hash(self):
         data = (
@@ -46,33 +42,22 @@ class Transaction:
         return SHA512.new(data=dumps(data))
 
     def validate(self, utxos):
-        if self.sender_public_key == self.receiver_public_key:
-            raise ValueError
+        return (
+            self.sender_public_key != self.receiver_public_key
+            and PKCS1_v1_5.new(RSA.importKey(self.sender_public_key)).verify(
+                self.hash(), self.signature
+            )
+            and sum(
+                utxos[self.sender_public_key][tx_id] for tx_id in self.transaction_input
+            )
+            == sum(amount for amount in self.transaction_outputs.values())
+        )
 
-        if not PKCS1_v1_5.new(RSA.importKey(self.sender_public_key)).verify(
-            self.hash(), self.signature
-        ):
-            return False
-
-        try:
-            with state.utxos_lock:
-                utxo_amount = sum(
-                    utxos[self.sender_public_key].pop(tx_id)
-                    for tx_id in self.transaction_input
-                )
-        except KeyError:
-            return False
-
-        if utxo_amount != sum(amount for amount in self.transaction_outputs.values()):
-            return False
-
-        with state.utxos_lock:
-            utxos[self.sender_public_key][self.id] = self.transaction_outputs["sender"]
-            utxos[self.receiver_public_key][self.id] = self.transaction_outputs[
-                "receiver"
-            ]
-
-        return True
+    def update_utxos(self, utxos):
+        for tx_id in self.transaction_input:
+            del utxos[self.sender_public_key][tx_id]
+        utxos[self.sender_public_key][self.id] = self.transaction_outputs["sender"]
+        utxos[self.receiver_public_key][self.id] = self.transaction_outputs["receiver"]
 
 
 class GenesisTransaction(Transaction):
@@ -83,17 +68,13 @@ class GenesisTransaction(Transaction):
         h = self.hash()
         self.id = h.hexdigest()
         self.transaction_outputs = {"receiver": amount}
-        with state.utxos_lock:
-            state.utxos[self.receiver_public_key][self.id] = amount
 
     def hash(self):
         data = self.receiver_public_key
         return SHA512.new(data=dumps(data))
 
-    def validate(self, utxos):
-        with state.utxos_lock:
-            utxos[self.receiver_public_key][self.id] = self.transaction_outputs[
-                "receiver"
-            ]
-
+    def validate(self, _):
         return True
+
+    def update_utxos(self, utxos):
+        utxos[self.receiver_public_key][self.id] = self.transaction_outputs["receiver"]
