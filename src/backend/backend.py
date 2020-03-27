@@ -157,15 +157,12 @@ else:
         if block.validate(state.committed_utxos, blockchain):
             with state.committed_utxos_lock:
                 block.update_utxos(state.committed_utxos)
-        else:
-            exit(1)
     with state.blockchain_lock:
         state.blockchain = blockchain
     with state.utxos_lock:
         state.utxos = deepcopy(state.committed_utxos)
     with state.block_lock:
         state.block = Block()
-    print(state.utxos)
 
     for address in state.nodes:
         if address != node.address:

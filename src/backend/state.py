@@ -13,5 +13,5 @@ blockchain_lock = Lock()
 committed_utxos = defaultdict(dict)
 committed_utxos_lock = Lock()
 
-utxos = defaultdict(dict)
+utxos = None
 utxos_lock = Lock()

@@ -1,3 +1,4 @@
+from copy import deepcopy
 from Crypto.Hash import SHA512
 from pickle import dumps
 from random import random
@@ -36,15 +37,19 @@ class Block:
                 return True
 
     def validate(self, utxos, blockchain):
-        if not (
-            int(self.hash().hexdigest()[:difficulty], base=16) == 0
-            and all(transaction.validate(utxos) for transaction in self.transactions)
-        ):
+        if not int(self.hash().hexdigest()[:difficulty], base=16) == 0:
             return False
 
         if not self.previous_hash == blockchain.at(self.index - 1).current_hash:
             # TODO resolve conflict
             return False
+
+        temp_utxos = deepcopy(utxos)
+        for transaction in self.transactions:
+            if transaction.validate(temp_utxos):
+                transaction.update_utxos(temp_utxos)
+            else:
+                return False
 
         block_validated.set()
         return True
