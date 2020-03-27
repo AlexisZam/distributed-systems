@@ -16,6 +16,9 @@ import state
 from transaction import GenesisTransaction, Transaction
 
 
+# TODO CANNOT VALIDATE BLOCK AND THEN UPDATE UTXOS, UPDATING MUST OCCUR AT TX VALIDATION LEVEL
+
+
 def generate_transaction(receiver_address, amount):
     sleep(1)  # FIXME
     transaction = Transaction(

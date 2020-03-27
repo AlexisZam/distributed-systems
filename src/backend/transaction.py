@@ -42,16 +42,20 @@ class Transaction:
         return SHA512.new(data=dumps(data))
 
     def validate(self, utxos):
-        return (
-            self.sender_public_key != self.receiver_public_key
-            and PKCS1_v1_5.new(RSA.importKey(self.sender_public_key)).verify(
-                self.hash(), self.signature
+        try:
+            return (
+                self.sender_public_key != self.receiver_public_key
+                and PKCS1_v1_5.new(RSA.importKey(self.sender_public_key)).verify(
+                    self.hash(), self.signature
+                )
+                and sum(
+                    utxos[self.sender_public_key][tx_id]
+                    for tx_id in self.transaction_input
+                )
+                == sum(amount for amount in self.transaction_outputs.values())
             )
-            and sum(
-                utxos[self.sender_public_key][tx_id] for tx_id in self.transaction_input
-            )
-            == sum(amount for amount in self.transaction_outputs.values())
-        )
+        except KeyError:
+            return False
 
     def update_utxos(self, utxos):
         for tx_id in self.transaction_input:
