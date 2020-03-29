@@ -24,6 +24,7 @@ class Blockchain:
                 block.update_utxos(temp_utxos)
             else:
                 return False
+        return True
 
     def update_utxos(self, utxos):
         for block in self.blocks:

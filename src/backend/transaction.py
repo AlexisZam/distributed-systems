@@ -55,23 +55,27 @@ class Transaction:
                 == sum(amount for amount in self.transaction_outputs.values())
             )
         except KeyError:
+            print('sum')
             return False
 
     def update_utxos(self, utxos):
         for tx_id in self.transaction_input:
-            del utxos[self.sender_public_key][tx_id]
+            try:
+                del utxos[self.sender_public_key][tx_id]
+            except KeyError:
+                pass
         utxos[self.sender_public_key][self.id] = self.transaction_outputs["sender"]
         utxos[self.receiver_public_key][self.id] = self.transaction_outputs["receiver"]
 
 
 class GenesisTransaction(Transaction):
     def __init__(self, receiver_public_key):
-        amount = 100 * n_nodes  # FIXME
+        init_amount = 100 * n_nodes  # FIXME
 
         self.receiver_public_key = receiver_public_key
         h = self.hash()
         self.id = h.hexdigest()
-        self.transaction_outputs = {"receiver": amount}
+        self.transaction_outputs = {"receiver": init_amount}
 
     def hash(self):
         data = self.receiver_public_key

@@ -1,4 +1,4 @@
-#!/usr/bin/env python3.8
+#!/usr/bin/env python3.6
 
 from argparse import ArgumentParser
 from cmd import Cmd
@@ -11,6 +11,10 @@ from requests import get, post
 class REPL(Cmd):
     intro = 'Noobcash 1.0\nType "help" for more information.'
     prompt = ">>> "
+
+    def do_load(self, arg):
+        
+        get(f"http://{address}/from_file")
 
     def do_transaction(self, arg):
         # TODO remove defaults
@@ -37,6 +41,11 @@ class REPL(Cmd):
         print(
             "transaction receiver_address amount", "view", "balance", "help", sep="\n"
         )
+    def do_id(self,_):
+        id = loads(get(f"http://{address}/id").content)
+        print(id)
+    def do_exit(self,_):
+        exit(0)
 
 
 parser = ArgumentParser(add_help=False)

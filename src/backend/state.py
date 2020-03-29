@@ -1,6 +1,7 @@
 from collections import defaultdict
 from threading import Lock
 
+nodes_by_id = None
 nodes = None
 nodes_lock = Lock()
 

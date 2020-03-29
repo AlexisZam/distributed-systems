@@ -40,9 +40,10 @@ class Block:
         if not int(self.hash().hexdigest()[:difficulty], base=16) == 0:
             return False
 
+
         if not self.previous_hash == blockchain.at(self.index - 1).current_hash:
             # TODO resolve conflict
-            return False
+            raise ValueError
 
         temp_utxos = deepcopy(utxos)
         for transaction in self.transactions:
@@ -52,12 +53,14 @@ class Block:
                 return False
 
         block_validated.set()
+        self.index = blockchain.length()  # FIXME
+
         return True
 
     def update_utxos(self, utxos):
         for transaction in self.transactions:
             transaction.update_utxos(utxos)
-
+        
 
 class GenesisBlock(Block):
     def __init__(self):
