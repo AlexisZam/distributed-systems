@@ -1,4 +1,4 @@
-#!/usr/bin/env python3.6
+#!/usr/bin/env python3.8
 
 from argparse import ArgumentParser
 from cmd import Cmd
